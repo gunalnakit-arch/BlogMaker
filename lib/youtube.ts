@@ -67,103 +67,47 @@ export const youtubeService = {
         }
     },
 
-    async downloadAudioCobalt(url: string, outputPath: string): Promise<void> {
-        console.log('[Cobalt] Falling back to Cobalt API...');
-        // Using a reliable public instance from cobalt.directory whitelist
-        // https://cobalt.canine.tools is often recommended
-        const res = await fetch('https://cobalt.canine.tools/api/json', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                url,
-                isAudioOnly: true,
-                aFormat: 'mp3'
-            })
-        });
-
-        if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`Cobalt API request failed: ${res.status} ${text}`);
-        }
-
-        const data = await res.json();
-
-        if (data.status === 'error') throw new Error(data.text || 'Cobalt Error');
-
-        const downloadUrl = data.url;
-        if (!downloadUrl) throw new Error('No download URL returned from Cobalt');
-
-        console.log(`[Cobalt] Streaming from ${downloadUrl}`);
-        const streamRes = await fetch(downloadUrl);
-        if (!streamRes.ok) throw new Error('Failed to download from Cobalt stream');
-
-        // Write stream to file
-        const buffer = Buffer.from(await streamRes.arrayBuffer());
-        await fsPromises.writeFile(outputPath, buffer);
-    },
-
+    // Simplified Direct Approach: No Cobalt, No Custom Headers, IOS Client
     async downloadAudio(url: string, outputPath: string): Promise<void> {
-        try {
-            await this.ensureBinary();
-            const cookiesPath = await this.getCookiesPath();
+        await this.ensureBinary();
 
-            const wrap = new YTDlpWrap(YT_DLP_PATH);
+        // Removed: getCookiesPath() (causing auth errors)
 
-            await new Promise<void>((resolve, reject) => {
-                // Stream the download to the output path
-                // -f ba: best audio
-                // -o -: output to stdout
-                const args = [
-                    url,
-                    '--no-check-certificate',
-                    '--extractor-args', 'youtube:player_client=android',
-                    // Remove manual UA as it might conflict with android client type
-                    '-f', 'ba',
-                    '-o', '-'
-                ];
+        const wrap = new YTDlpWrap(YT_DLP_PATH);
 
-                if (cookiesPath) {
-                    args.push('--cookies', cookiesPath);
-                }
+        return new Promise((resolve, reject) => {
+            const args = [
+                url,
+                '--no-check-certificate',
+                // Use iOS client - often cleaner anonymous access
+                '--extractor-args', 'youtube:player_client=ios',
+                // Format: best audio
+                '-f', 'ba',
+                '-o', '-'
+            ];
 
-                const ytStream = wrap.execStream(args);
+            const ytStream = wrap.execStream(args);
+            const fileStream = fs.createWriteStream(outputPath);
 
-                const fileStream = fs.createWriteStream(outputPath);
+            ytStream.pipe(fileStream);
 
-                ytStream.pipe(fileStream);
-
-                ytStream.on('error', (err) => reject(err));
-
-                fileStream.on('finish', () => resolve());
-                fileStream.on('error', (err) => reject(err));
-            });
-        } catch (error) {
-            console.error('yt-dlp download failed, attempting fallback...', error);
-            // Fallback to Cobalt
-            await this.downloadAudioCobalt(url, outputPath);
-        }
+            ytStream.on('error', (err) => reject(err));
+            fileStream.on('finish', () => resolve());
+            fileStream.on('error', (err) => reject(err));
+        });
     },
 
     async getVideoInfo(url: string) {
         try {
             await this.ensureBinary();
-            const cookiesPath = await this.getCookiesPath();
             const wrap = new YTDlpWrap(YT_DLP_PATH);
 
             const args = [
                 url,
                 '--no-check-certificate',
-                '--extractor-args', 'youtube:player_client=android',
-                // Remove manual UA
+                '--extractor-args', 'youtube:player_client=ios',
                 '--dump-json'
             ];
-
-            if (cookiesPath) {
-                args.push('--cookies', cookiesPath);
-            }
 
             // Manual execution to pass --no-check-certificate
             const stdout = await wrap.execPromise(args);
@@ -177,8 +121,8 @@ export const youtubeService = {
                 channel: metadata.uploader
             };
         } catch (e) {
-            console.error("yt-dlp info failed, attempting fallback...", e);
-            // Fallback to OEmbed
+            console.error("yt-dlp info failed, attempting OEmbed fallback...", e);
+            // Fallback to OEmbed (Safe, reliable for metadata)
             return await this.getOEmbedInfo(url);
         }
     }

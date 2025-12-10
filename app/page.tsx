@@ -61,8 +61,7 @@ export default function Home() {
             <span className="bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent">Blog Posts</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-lg mx-auto leading-relaxed">
-            AI-powered pipeline: MP3 → Deepgram → Gemini → SEO Blog.
-            <br />100% Local Processing.
+            AI-powered pipeline.
           </p>
         </div>
 
@@ -112,11 +111,7 @@ export default function Home() {
           </form>
         </Card>
 
-        <div className="flex justify-center gap-8 text-sm text-muted-foreground/50 font-medium">
-          <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Deepgram Nova-2</div>
-          <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /> Gemini 2.5 Pro</div>
-          <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" /> Local FS</div>
-        </div>
+
       </motion.div>
     </div>
   );

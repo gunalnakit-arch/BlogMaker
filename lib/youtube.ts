@@ -69,16 +69,23 @@ export const youtubeService = {
 
     async downloadAudioCobalt(url: string, outputPath: string): Promise<void> {
         console.log('[Cobalt] Falling back to Cobalt API...');
-        // Using a public instance - in production, users should ideally host their own or use a reliable one
-        // Try multiple instances if one fails? For now just the main one.
-        const res = await fetch('https://api.cobalt.tools/api/json', {
+        // Using main public instance. Warning: Rate limits apply.
+        // Current API documentation suggests POST / for best results on v10+
+        const res = await fetch('https://api.cobalt.tools', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                // Add a generic Referer/Origin just in case
+                'Origin': 'https://cobalt.tools',
+                'Referer': 'https://cobalt.tools/'
             },
             body: JSON.stringify({
                 url,
+                // v10+ parameters might differ slightly, but these are standard
+                downloadMode: 'audio',
+                youtubeVideoCodec: 'mp3',
+                // Legacy params fallback
                 isAudioOnly: true,
                 aFormat: 'mp3'
             })

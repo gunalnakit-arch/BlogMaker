@@ -19,7 +19,18 @@ export const youtubeService = {
         console.log('Downloading yt-dlp binary...');
         try {
             await fsPromises.mkdir(BIN_DIR, { recursive: true });
-            await YTDlpWrap.downloadFromGithub(YT_DLP_PATH);
+
+            if (isVercel) {
+                console.log('Detected Vercel environment. Downloading standalone Linux binary...');
+                const response = await fetch('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux');
+                if (!response.ok) throw new Error(`Failed to download binary: ${response.statusText}`);
+
+                const buffer = Buffer.from(await response.arrayBuffer());
+                await fsPromises.writeFile(YT_DLP_PATH, buffer);
+            } else {
+                await YTDlpWrap.downloadFromGithub(YT_DLP_PATH);
+            }
+
             // Make executable
             await fsPromises.chmod(YT_DLP_PATH, '755');
             console.log('yt-dlp downloaded successfully.');

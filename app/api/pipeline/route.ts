@@ -1,32 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileSystem } from '@/lib/file-system';
-import { aiService } from '@/lib/ai-service';
 import path from 'path';
 import fs from 'fs/promises';
 
 // Allow long execution time
 export const maxDuration = 300; // 5 minutes
+export const runtime = 'nodejs'; // Use Node.js runtime as requested
 
+import { NextRequest, NextResponse } from 'next/server';
+import { fileSystem } from '@/lib/file-system';
+import { aiService } from '@/lib/ai-service';
 import { Innertube } from 'youtubei.js';
-import { createClient } from '@deepgram/sdk'; // Make sure to use createClient if using newer SDK versions or just Deepgram class
-// Actually user code used `import { Deepgram } from "@deepgram/sdk"`. I'll match their style but ensure imports are valid.
-// Checking imports... SDK v3 uses createClient, v2 uses Deepgram. 
-// Assuming installed SDK is compatible. I'll stick to what worked or is standard.
-// Let's use the standard import form for the snippet provided.
-
-// NOTE: The user's snippet uses `new Deepgram()`. 
-// If that fails we can adjust. I'll paste their logic adapted for the pipeline.
+import { createClient } from '@deepgram/sdk';
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY || "");
-// NOTE: I changed `new Deepgram` to `createClient` because newer SDKs default to this. 
-// If the user's snippet was for SDK v2, it might differ. But `createClient` is safer for modern docs.
 
 export async function POST(req: NextRequest) {
     try {
-        const { url: youtubeUrl, prompt } = await req.json();
+        const body = await req.json();
+        const youtubeUrl = body.url || body.youtubeUrl; // Support both format
+        const prompt = body.prompt;
 
         if (!youtubeUrl) {
-            return NextResponse.json({ error: 'URL is required' }, { status: 400 });
+            return NextResponse.json({ error: 'youtubeUrl is required' }, { status: 400 });
         }
 
         console.log(`[Pipeline] Processing URL: ${youtubeUrl}`);
@@ -46,30 +42,38 @@ export async function POST(req: NextRequest) {
         if (!videoId) {
             return NextResponse.json({ error: "Could not parse video id" }, { status: 400 });
         }
-
         // 2. Create Post Entry (to reserve ID)
         const postId = await fileSystem.createPost(youtubeUrl);
         console.log(`[Pipeline] Created post: ${postId}`);
 
         // 3. Get Audio Stream URL via youtubei.js
-        console.log('[Pipeline] Fetching video info via youtubei.js...');
+        console.log('[Pipeline] Fetching video info via youtubei.js (Android Client)...');
         const yt = await Innertube.create();
-        const info = await yt.getBasicInfo(videoId);
 
-        const adaptiveFormats = info?.streaming_data?.adaptive_formats || [];
-        const formats = info?.streaming_data?.formats || [];
+        // Use ANDROID client as requested
+        const info = await yt.getInfo(videoId, { client: 'ANDROID' });
 
-        // Find audio only format
-        let audioFormat = adaptiveFormats.find((f: any) => f.mime_type?.includes("audio"));
-        if (!audioFormat) {
-            audioFormat = formats.find((f: any) => f.mime_type?.includes("audio"));
+        // Use standard selection method
+        const format = info.chooseFormat({ type: 'audio', quality: 'best' });
+
+        if (!format) {
+            throw new Error("Audio stream not found (no suitable audio format)");
         }
 
-        if (!audioFormat || !audioFormat.url) {
-            throw new Error("Audio stream not found for this video");
+        let audioUrl: string | undefined;
+
+        // Adapted decipher logic: check type and await if function
+        // This handles explicit signature deciphering required for many videos
+        if (typeof (format as any).decipher === 'function') {
+            audioUrl = await (format as any).decipher(yt.session.player);
+        } else {
+            audioUrl = (format as any).url;
         }
 
-        const audioUrl = audioFormat.url;
+        if (!audioUrl) {
+            throw new Error("Audio stream not found for this video (no playable url)");
+        }
+
         console.log('[Pipeline] Got Audio URL. Sending to Deepgram...');
 
         // 4. Transcribe via Deepgram URL
@@ -77,10 +81,12 @@ export async function POST(req: NextRequest) {
             throw new Error("DEEPGRAM_API_KEY is not set");
         }
 
+        // Adapted for Deepgram SDK v4 (listen.prerecorded.transcribeUrl)
         const dgResponse = await deepgram.listen.prerecorded.transcribeUrl(
             { url: audioUrl },
             {
                 model: "nova-2",
+                language: 'tr', // Defaulting to TR as per project context
                 smart_format: true,
                 punctuate: true,
                 paragraphs: false,
@@ -93,36 +99,26 @@ export async function POST(req: NextRequest) {
             throw new Error("Transcript is empty");
         }
 
-        console.log('[Pipeline] Transcription success. Length:', transcript.length);
-        await fileSystem.updatePost(postId, { transcript, title: info.basic_info.title });
+        console.log(`[Pipeline] Transcription success. Length: ${transcript.length}`);
 
-        // 5. Generate Blog (Decoupled but we trigger it here logic-wise or user navigates to it)
-        // Since we have the transcript, we can proceed to save it. 
-        // The frontend redirects to the editor/viewer which potentially triggers generation or displays data.
-        // If we want to Auto-Generate the blog using Gemini immediately:
-        // We can do it here or let the user click "Generate" on the next page.
-        // Original logic seemed to rely on `aiService.transcribeAudio` doing everything? 
-        // No, the original code had a separate step for blog generation usually, 
-        // OR the user expects it done. 
-        // Let's generate it now to match previous "One Click" experience.
+        // Save transcript
+        const videoTitle = info.basic_info?.title || "Unknown Video";
+        await fileSystem.updatePost(postId, { transcript, title: videoTitle });
 
-        console.log('[Pipeline] Generating Blog Post via Gemini...');
+        // 5. Generate Blog
         console.log('[Pipeline] Generating Blog Post via Gemini...');
         const generatedBlog = await aiService.generateBlog(transcript, prompt);
 
-        // generatedBlog contains { metaTitle, metaDescription, slug, h1, keywords, contentHtml }
-        // updatePost expects { blogContent, ...metadata }
         await fileSystem.updatePost(postId, {
             blogContent: generatedBlog.contentHtml,
             metaTitle: generatedBlog.metaTitle,
             metaDescription: generatedBlog.metaDescription,
             slug: generatedBlog.slug,
-            // PostMeta interface has keywords string[]. 
-            // generatedBlog has keywords string[].
             keywords: generatedBlog.keywords,
-            title: generatedBlog.h1 // Use H1 as the main title for the list
+            title: generatedBlog.h1
         });
 
+        // Return JSON with ID so frontend can redirect
         return NextResponse.json({ id: postId, success: true });
 
     } catch (error: any) {

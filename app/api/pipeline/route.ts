@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fileSystem } from '@/lib/file-system';
-import path from 'path';
-import fs from 'fs/promises';
+import { aiService } from '@/lib/ai-service';
+import { Innertube } from 'youtubei.js';
+import { createClient } from '@deepgram/sdk';
 
 // Allow long execution time
 export const maxDuration = 300; // 5 minutes
 export const runtime = 'nodejs'; // Use Node.js runtime as requested
-
-import { NextRequest, NextResponse } from 'next/server';
-import { fileSystem } from '@/lib/file-system';
-import { aiService } from '@/lib/ai-service';
-import { Innertube } from 'youtubei.js';
-import { createClient } from '@deepgram/sdk';
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY || "");
 

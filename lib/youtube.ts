@@ -50,40 +50,101 @@ export const youtubeService = {
         return cookiesPath;
     },
 
-    async downloadAudio(url: string, outputPath: string): Promise<void> {
-        await this.ensureBinary();
-        const cookiesPath = await this.getCookiesPath();
+    async getOEmbedInfo(url: string) {
+        try {
+            const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+            if (!res.ok) throw new Error('OEmbed failed');
+            const data = await res.json();
+            return {
+                title: data.title,
+                thumbnail: data.thumbnail_url,
+                duration: 0, // OEmbed doesn't give duration
+                channel: data.author_name
+            };
+        } catch (e) {
+            console.error('OEmbed fallback failed:', e);
+            return null;
+        }
+    },
 
-        const wrap = new YTDlpWrap(YT_DLP_PATH);
-
-        return new Promise((resolve, reject) => {
-            // Stream the download to the output path
-            // -f ba: best audio
-            // -o -: output to stdout
-            const args = [
+    async downloadAudioCobalt(url: string, outputPath: string): Promise<void> {
+        console.log('[Cobalt] Falling back to Cobalt API...');
+        // Using a public instance - in production, users should ideally host their own or use a reliable one
+        // Try multiple instances if one fails? For now just the main one.
+        const res = await fetch('https://api.cobalt.tools/api/json', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
                 url,
-                '--no-check-certificate',
-                '--extractor-args', 'youtube:player_client=android',
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '-f', 'ba',
-                '-o', '-'
-            ];
-
-            if (cookiesPath) {
-                args.push('--cookies', cookiesPath);
-            }
-
-            const ytStream = wrap.execStream(args);
-
-            const fileStream = fs.createWriteStream(outputPath);
-
-            ytStream.pipe(fileStream);
-
-            ytStream.on('error', (err) => reject(err));
-
-            fileStream.on('finish', () => resolve());
-            fileStream.on('error', (err) => reject(err));
+                isAudioOnly: true,
+                aFormat: 'mp3'
+            })
         });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Cobalt API request failed: ${res.status} ${text}`);
+        }
+
+        const data = await res.json();
+
+        if (data.status === 'error') throw new Error(data.text || 'Cobalt Error');
+
+        const downloadUrl = data.url;
+        if (!downloadUrl) throw new Error('No download URL returned from Cobalt');
+
+        console.log(`[Cobalt] Streaming from ${downloadUrl}`);
+        const streamRes = await fetch(downloadUrl);
+        if (!streamRes.ok) throw new Error('Failed to download from Cobalt stream');
+
+        // Write stream to file
+        const buffer = Buffer.from(await streamRes.arrayBuffer());
+        await fsPromises.writeFile(outputPath, buffer);
+    },
+
+    async downloadAudio(url: string, outputPath: string): Promise<void> {
+        try {
+            await this.ensureBinary();
+            const cookiesPath = await this.getCookiesPath();
+
+            const wrap = new YTDlpWrap(YT_DLP_PATH);
+
+            await new Promise<void>((resolve, reject) => {
+                // Stream the download to the output path
+                // -f ba: best audio
+                // -o -: output to stdout
+                const args = [
+                    url,
+                    '--no-check-certificate',
+                    '--extractor-args', 'youtube:player_client=android',
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '-f', 'ba',
+                    '-o', '-'
+                ];
+
+                if (cookiesPath) {
+                    args.push('--cookies', cookiesPath);
+                }
+
+                const ytStream = wrap.execStream(args);
+
+                const fileStream = fs.createWriteStream(outputPath);
+
+                ytStream.pipe(fileStream);
+
+                ytStream.on('error', (err) => reject(err));
+
+                fileStream.on('finish', () => resolve());
+                fileStream.on('error', (err) => reject(err));
+            });
+        } catch (error) {
+            console.error('yt-dlp download failed, attempting fallback...', error);
+            // Fallback to Cobalt
+            await this.downloadAudioCobalt(url, outputPath);
+        }
     },
 
     async getVideoInfo(url: string) {
@@ -116,8 +177,9 @@ export const youtubeService = {
                 channel: metadata.uploader
             };
         } catch (e) {
-            console.error("Failed to get video info", e);
-            return null;
+            console.error("yt-dlp info failed, attempting fallback...", e);
+            // Fallback to OEmbed
+            return await this.getOEmbedInfo(url);
         }
     }
 };

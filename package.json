@@ -29,6 +29,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "uuid": "^13.0.0",
+    "youtubei.js": "^16.0.1",
     "yt-dlp-wrap": "^2.3.12"
   },
   "devDependencies": {

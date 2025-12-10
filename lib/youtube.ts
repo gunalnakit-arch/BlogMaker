@@ -4,7 +4,12 @@ import fs from 'fs';
 
 import fsPromises from 'fs/promises';
 
-const BIN_DIR = path.join(process.cwd(), 'bin');
+import os from 'os';
+
+const isVercel = process.env.VERCEL === '1';
+// In Vercel, we can only write to /tmp. 
+// Also binaries might need to be downloaded there if not included in build.
+const BIN_DIR = isVercel ? path.join(os.tmpdir(), 'bin') : path.join(process.cwd(), 'bin');
 const YT_DLP_PATH = path.join(BIN_DIR, 'yt-dlp');
 
 export const youtubeService = {

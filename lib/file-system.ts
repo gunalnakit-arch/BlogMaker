@@ -2,7 +2,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-const DATA_DIR = path.join(process.cwd(), 'data', 'posts');
+import os from 'os';
+
+const isVercel = process.env.VERCEL === '1';
+const DATA_DIR = isVercel ? path.join(os.tmpdir(), 'posts') : path.join(process.cwd(), 'data', 'posts');
 
 export interface PostMeta {
     id: string;

@@ -40,8 +40,19 @@ export const youtubeService = {
         }
     },
 
+
+    async getCookiesPath(): Promise<string | null> {
+        const cookies = process.env.YOUTUBE_COOKIES;
+        if (!cookies) return null;
+
+        const cookiesPath = isVercel ? path.join(os.tmpdir(), 'cookies.txt') : path.join(process.cwd(), 'cookies.txt');
+        await fsPromises.writeFile(cookiesPath, cookies);
+        return cookiesPath;
+    },
+
     async downloadAudio(url: string, outputPath: string): Promise<void> {
         await this.ensureBinary();
+        const cookiesPath = await this.getCookiesPath();
 
         const wrap = new YTDlpWrap(YT_DLP_PATH);
 
@@ -49,12 +60,19 @@ export const youtubeService = {
             // Stream the download to the output path
             // -f ba: best audio
             // -o -: output to stdout
-            const ytStream = wrap.execStream([
+            const args = [
                 url,
                 '--no-check-certificate',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '-f', 'ba',
                 '-o', '-'
-            ]);
+            ];
+
+            if (cookiesPath) {
+                args.push('--cookies', cookiesPath);
+            }
+
+            const ytStream = wrap.execStream(args);
 
             const fileStream = fs.createWriteStream(outputPath);
 
@@ -70,14 +88,22 @@ export const youtubeService = {
     async getVideoInfo(url: string) {
         try {
             await this.ensureBinary();
+            const cookiesPath = await this.getCookiesPath();
             const wrap = new YTDlpWrap(YT_DLP_PATH);
 
-            // Manual execution to pass --no-check-certificate
-            const stdout = await wrap.execPromise([
+            const args = [
                 url,
                 '--no-check-certificate',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '--dump-json'
-            ]);
+            ];
+
+            if (cookiesPath) {
+                args.push('--cookies', cookiesPath);
+            }
+
+            // Manual execution to pass --no-check-certificate
+            const stdout = await wrap.execPromise(args);
 
             const metadata = JSON.parse(stdout);
 

@@ -1,0 +1,85 @@
+# Implementation Plan - BlogMaker
+
+Goal: Create a premium, file-based AI blog generator app that converts Turkish YouTube videos into SEO-friendly blog posts using Deepgram and Gemini.
+
+## User Review Required
+- **No Database**: Confirming reliance on local file system (`/data/posts`).
+- **YouTube Downloading**: `ytdl-core` can be flaky. I will try to use a robust alternative or wrapper if needed, or stick to `ytdl-core` with latest updates. *Self-correction: ytdl-core is widely used but often battles with YouTube. I might use `yt-dlp` via a wrapper if execution allows, or a stable node library `ytdl-core`.*
+- **Puppeteer**: Will be used for PDF generation. This adds significant size to the node_modules but is required for high-quality rendering.
+
+## Proposed Changes
+
+### Tech Stack
+- **Framework**: Next.js 14+ (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS + Shadcn UI (Radix) + Framer Motion (for animations)
+- **Backend**: Next.js API Routes
+- **AI/ML**:
+  - Deepgram SDK (Transcription)
+  - Google Generative AI SDK (Gemini)
+- **Utilities**:
+  - `fs/promises` for file operations.
+  - `fluent-ffmpeg` for audio conversions if needed.
+  - `docx` for Word export.
+  - `puppeteer` for PDF export.
+  - `uuid` for unique IDs.
+
+### File Structure (Data)
+The app will write to:
+`/Users/kaan/Desktop/BlogMaker/data/posts/{id}/`
+- `transcript.txt`
+- `blog.html`
+- `meta.json`
+
+### Backend Services
+#### [NEW] [lib/file-system.ts](file:///Users/kaan/Desktop/BlogMaker/lib/file-system.ts)
+- `createPost(data)`: Creates folder, writes initial files.
+- `getPosts()`: Scans `/data/posts`, reads `meta.json` from each.
+- `getPost(id)`: Reads specific post files.
+- `updatePost(id, data)`: Overwrites files.
+
+#### [NEW] [lib/youtube.ts](file:///Users/kaan/Desktop/BlogMaker/lib/youtube.ts)
+- `downloadAudio(url, outputPath)`: Handles downloading.
+
+#### [NEW] [lib/ai-service.ts](file:///Users/kaan/Desktop/BlogMaker/lib/ai-service.ts)
+- `transcribeAudio(filePath)`: Deepgram integration.
+- `generateBlog(transcript, prompt)`: Gemini integration.
+
+### API Routes
+#### [NEW] [app/api/pipeline/route.ts](file:///Users/kaan/Desktop/BlogMaker/app/api/pipeline/route.ts)
+- POST: Accepts URL. Orchestrates the flow. Returns Post ID.
+
+#### [NEW] [app/api/posts/route.ts](file:///Users/kaan/Desktop/BlogMaker/app/api/posts/route.ts)
+- GET: List all posts.
+
+#### [NEW] [app/api/posts/[id]/route.ts](file:///Users/kaan/Desktop/BlogMaker/app/api/posts/[id]/route.ts)
+- GET: Get details.
+- PUT: Update content.
+
+#### [NEW] [app/api/export/[type]/route.ts](file:///Users/kaan/Desktop/BlogMaker/app/api/export/[type]/route.ts)
+- GET: Stream PDF or DOCX.
+
+### Frontend
+#### [NEW] [components](file:///Users/kaan/Desktop/BlogMaker/components)
+- **UI Components**: Shadcn setup (Button, Input, Card, Dialog, Toast, etc.)
+- **Layout**: `Navbar`, `Sidebar` (if needed), `GradientBackground`.
+- **Feature Components**:
+    - `UrlInput`: Hero section with animated input.
+    - `TranscriptView`: Text area for transcript.
+    - `BlogEditor`: Rich text or markdown editor for blog content.
+    - `DashboardTable`: List of posts.
+
+## Verification Plan
+### Manual Verification
+1. **Pipeline Test**:
+    - Input a Turkish YouTube video URL.
+    - Verify `/data/posts/{new-id}` is created.
+    - Verify `transcript.txt` has Turkish text.
+    - Verify `blog.html` has content.
+2. **Dashboard Test**:
+    - Reload page, ensure new post appears.
+3. **Edit Test**:
+    - Edit blog title, save. Reload. Verify persistence.
+4. **Export Test**:
+    - Click PDF download -> Check file.
+    - Click DOCX download -> Check file.

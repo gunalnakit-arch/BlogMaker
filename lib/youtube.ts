@@ -69,23 +69,16 @@ export const youtubeService = {
 
     async downloadAudioCobalt(url: string, outputPath: string): Promise<void> {
         console.log('[Cobalt] Falling back to Cobalt API...');
-        // Using main public instance. Warning: Rate limits apply.
-        // Current API documentation suggests POST / for best results on v10+
-        const res = await fetch('https://api.cobalt.tools', {
+        // Using a reliable public instance from cobalt.directory whitelist
+        // https://cobalt.canine.tools is often recommended
+        const res = await fetch('https://cobalt.canine.tools/api/json', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                // Add a generic Referer/Origin just in case
-                'Origin': 'https://cobalt.tools',
-                'Referer': 'https://cobalt.tools/'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 url,
-                // v10+ parameters might differ slightly, but these are standard
-                downloadMode: 'audio',
-                youtubeVideoCodec: 'mp3',
-                // Legacy params fallback
                 isAudioOnly: true,
                 aFormat: 'mp3'
             })
@@ -127,7 +120,7 @@ export const youtubeService = {
                     url,
                     '--no-check-certificate',
                     '--extractor-args', 'youtube:player_client=android',
-                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    // Remove manual UA as it might conflict with android client type
                     '-f', 'ba',
                     '-o', '-'
                 ];
@@ -164,7 +157,7 @@ export const youtubeService = {
                 url,
                 '--no-check-certificate',
                 '--extractor-args', 'youtube:player_client=android',
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                // Remove manual UA
                 '--dump-json'
             ];
 

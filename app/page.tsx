@@ -38,6 +38,10 @@ export default function Home() {
         throw new Error(data.error || 'Pipeline failed');
       }
 
+      // STATELESS: Save result to LocalStorage
+      // Use the returned ID as the key
+      localStorage.setItem(`post-${data.id}`, JSON.stringify(data));
+
       toast.success('Blog Generated!', { description: 'Redirecting to editor...' });
       router.push(`/posts/${data.id}`);
 

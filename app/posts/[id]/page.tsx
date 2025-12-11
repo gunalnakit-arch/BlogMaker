@@ -30,30 +30,27 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
     const [activeTab, setActiveTab] = useState<'blog' | 'meta' | 'transcript'>('blog');
 
     useEffect(() => {
-        fetch(`/api/posts/${id}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.error) throw new Error(data.error);
-                setPost(data);
-                setLoading(false);
-            })
-            .catch(err => {
-                toast.error('Failed to load post');
-                setLoading(false);
-            });
+        // STATELESS: Read from LocalStorage
+        const savedData = localStorage.getItem(`post-${id}`);
+        if (savedData) {
+            try {
+                setPost(JSON.parse(savedData));
+            } catch (e) {
+                toast.error('Failed to parse post data');
+            }
+        } else {
+            toast.error('Post not found in local storage');
+        }
+        setLoading(false);
     }, [id]);
 
     const handleSave = async () => {
         if (!post) return;
         setSaving(true);
         try {
-            const res = await fetch(`/api/posts/${id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(post),
-            });
-            if (!res.ok) throw new Error('Failed to save');
-            toast.success('Saved successfully');
+            // STATELESS: Save to LocalStorage
+            localStorage.setItem(`post-${id}`, JSON.stringify(post));
+            toast.success('Saved locally');
         } catch (error) {
             toast.error('Error saving post');
         } finally {
@@ -124,53 +121,13 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
                     </Button>
 
                     <div className="pt-8 border-t border-white/10 mt-8 space-y-4">
-                        {/* Generate Button Area */}
                         <div className="bg-gradient-to-br from-purple-900/20 to-blue-900/10 p-4 rounded-xl border border-white/5 space-y-3">
-                            <p className="text-xs font-medium text-purple-200">AI Actions</p>
-                            <Button
-                                onClick={async () => {
-                                    if (!confirm('Generate blog post from transcript? This will overwrite existing content.')) return;
-                                    setSaving(true);
-                                    toast.info('Generating blog...', { description: 'This may take a minute.' });
-                                    try {
-                                        const res = await fetch(`/api/posts/${post.id}/generate`, {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ prompt: 'Create a high quality blog post.' }) // could allow user prompt here later
-                                        });
-                                        if (!res.ok) throw new Error((await res.json()).error);
-
-                                        // Reload post
-                                        const updatedRes = await fetch(`/api/posts/${post.id}`);
-                                        const updatedData = await updatedRes.json();
-                                        setPost(updatedData);
-                                        setActiveTab('blog');
-                                        toast.success('Blog Generated Successfully!');
-                                    } catch (e: any) {
-                                        toast.error('Generation Failed', { description: e.message });
-                                    } finally {
-                                        setSaving(false);
-                                    }
-                                }}
-                                disabled={saving}
-                                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg shadow-purple-900/20"
-                            >
-                                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Bot className="w-4 h-4 mr-2" />}
-                                Generate Blog AI
-                            </Button>
+                            <p className="text-xs font-medium text-purple-200">Local Mode</p>
+                            <p className="text-xs text-muted-foreground">
+                                This post is saved in your browser's Local Storage.
+                                <br />Export features are currently disabled in serverless mode.
+                            </p>
                         </div>
-
-                        <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-widest pl-2">Downloads</p>
-                        <a href={`/api/export/pdf?id=${post.id}`} target="_blank" className="block">
-                            <Button variant="outline" className="w-full justify-start border-white/10 hover:bg-white/5">
-                                <Download className="w-4 h-4 mr-2" /> Export PDF
-                            </Button>
-                        </a>
-                        <a href={`/api/export/docx?id=${post.id}`} target="_blank" className="block">
-                            <Button variant="outline" className="w-full justify-start border-white/10 hover:bg-white/5">
-                                <Download className="w-4 h-4 mr-2" /> Export DOCX
-                            </Button>
-                        </a>
                     </div>
                 </div>
 

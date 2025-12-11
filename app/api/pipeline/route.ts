@@ -3,76 +3,78 @@ export const maxDuration = 300; // 5 minutes
 export const runtime = 'nodejs'; // Use Node.js runtime as requested
 
 import { NextRequest, NextResponse } from 'next/server';
-import { fileSystem } from '@/lib/file-system';
 import { aiService } from '@/lib/ai-service';
-import { createClient } from '@deepgram/sdk';
+import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY || "");
+import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(req: NextRequest) {
     try {
+        console.log('[Pipeline] Received request');
+
+        let formData: FormData;
         try {
-            console.log('[Pipeline] Received request');
-            let formData: FormData;
-            try {
-                formData = await req.formData();
-            } catch (e: any) {
-                console.error('[Pipeline] FormData Parsing Error:', e);
-                // This specific error "string did not match..." often comes from headers/parsing
-                throw new Error(`Failed to parse upload: ${e.message}`);
-            }
+            formData = await req.formData();
+        } catch (e: any) {
+            console.error('[Pipeline] FormData Parsing Error:', e);
+            throw new Error(`Failed to parse upload: ${e.message}`);
+        }
 
-            const file = formData.get('file') as File;
-            const prompt = formData.get('prompt') as string;
+        const file = formData.get('file') as File;
+        const prompt = formData.get('prompt') as string;
 
-            if (!file) {
-                return NextResponse.json({ error: 'File is required' }, { status: 400 });
-            }
+        if (!file) {
+            return NextResponse.json({ error: 'File is required' }, { status: 400 });
+        }
 
-            console.log(`[Pipeline] File: ${file.name}, Size: ${file.size}, Type: ${file.type}`);
+        console.log(`[Pipeline] Processing file: ${file.name}, Size: ${file.size}`);
 
-            // 1. Create Post Entry (Folder)
-            // Use filename as the "URL" / source identifier
-            const postId = await fileSystem.createPost(file.name);
-            console.log(`[Pipeline] Created post: ${postId} for file: ${file.name} `);
+        // Use standard system temp directory
+        const tempDir = os.tmpdir();
+        const tempFilePath = path.join(tempDir, `upload-${uuidv4()}.mp3`);
 
-            const postPath = await fileSystem.getPostPath(postId);
-            const audioPath = path.join(postPath, 'audio.mp3');
+        try {
+            // 1. Save Uploaded Audio to Temp
+            console.log('[Pipeline] Saving to temp...', tempFilePath);
+            const buffer = Buffer.from(await file.arrayBuffer());
+            await fs.writeFile(tempFilePath, buffer);
 
-            try {
-                // 2. Save Uploaded Audio
-                console.log('[Pipeline] Saving uploaded audio...');
-                const buffer = Buffer.from(await file.arrayBuffer());
-                await fs.writeFile(audioPath, buffer);
+            // 2. Transcribe
+            console.log('[Pipeline] Transcribing...');
+            const transcript = await aiService.transcribeAudio(tempFilePath);
+            console.log(`[Pipeline] Transcript length: ${transcript.length}`);
 
-                // 3. Transcribe
-                console.log('[Pipeline] Transcribing...');
-                const transcript = await aiService.transcribeAudio(audioPath);
-                await fileSystem.updatePost(postId, { transcript, title: file.name });
+            // 3. Generate Blog
+            console.log('[Pipeline] Generating Blog Post via Gemini...');
+            const generatedBlog = await aiService.generateBlog(transcript, prompt);
 
-                // 4. Generate Blog
-                console.log('[Pipeline] Generating Blog Post via Gemini...');
-                const generatedBlog = await aiService.generateBlog(transcript, prompt);
+            // 4. Clean up temp file
+            await fs.unlink(tempFilePath).catch(e => console.error('Failed to delete temp file:', e));
 
-                await fileSystem.updatePost(postId, {
-                    blogContent: generatedBlog.contentHtml,
-                    metaTitle: generatedBlog.metaTitle,
-                    metaDescription: generatedBlog.metaDescription,
-                    slug: generatedBlog.slug,
-                    keywords: generatedBlog.keywords,
-                    title: generatedBlog.h1
-                });
+            // 5. Return Full Data Payload (Stateless)
+            const responsePayload = {
+                id: uuidv4(),
+                title: generatedBlog.h1,
+                content: generatedBlog.contentHtml,
+                metaTitle: generatedBlog.metaTitle,
+                metaDescription: generatedBlog.metaDescription,
+                slug: generatedBlog.slug,
+                keywords: generatedBlog.keywords,
+                createdAt: new Date().toISOString(),
+                transcript: transcript
+            };
 
-                return NextResponse.json({ id: postId, success: true });
-
-            } catch (error: any) {
-                console.error('[Pipeline] Error:', error);
-                return NextResponse.json({ error: error.message }, { status: 500 });
-            }
+            return NextResponse.json(responsePayload);
 
         } catch (error: any) {
+            console.error('[Pipeline] Processing Error:', error);
+            // Attempt cleanup
+            await fs.unlink(tempFilePath).catch(() => { });
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
+
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
+}

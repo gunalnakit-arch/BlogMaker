@@ -1,0 +1,15 @@
+{
+    "functions": {
+        "app/api/pipeline/route.ts": {
+            "maxDuration": 300
+        }
+    },
+    "routes": [
+        {
+            "src": "/api/pipeline",
+            "headers": {
+                "x-vercel-skip-firewall": "1"
+            }
+        }
+    ]
+}

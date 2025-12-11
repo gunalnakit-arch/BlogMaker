@@ -7,7 +7,9 @@ import { aiService } from '@/lib/ai-service';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { v4 as uuidv4 } from 'uuid';
+
+// Simple ID generator to avoid uuid package issues
+const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
 export async function POST(req: NextRequest) {
     try {
@@ -32,7 +34,8 @@ export async function POST(req: NextRequest) {
 
         // Use standard system temp directory
         const tempDir = os.tmpdir();
-        const tempFilePath = path.join(tempDir, `upload-${uuidv4()}.mp3`);
+        const requestId = generateId();
+        const tempFilePath = path.join(tempDir, `upload-${requestId}.mp3`);
 
         try {
             // 1. Save Uploaded Audio to Temp
@@ -68,7 +71,7 @@ export async function POST(req: NextRequest) {
 
             // 5. Return Full Data Payload (Stateless)
             const responsePayload = {
-                id: uuidv4(),
+                id: requestId,
                 title: generatedBlog.h1,
                 content: generatedBlog.contentHtml,
                 metaTitle: generatedBlog.metaTitle,

@@ -37,17 +37,31 @@ export async function POST(req: NextRequest) {
         try {
             // 1. Save Uploaded Audio to Temp
             console.log('[Pipeline] Saving to temp...', tempFilePath);
-            const buffer = Buffer.from(await file.arrayBuffer());
-            await fs.writeFile(tempFilePath, buffer);
+            try {
+                const buffer = Buffer.from(await file.arrayBuffer());
+                await fs.writeFile(tempFilePath, buffer);
+            } catch (e: any) {
+                throw new Error(`Stage 1 (File Save) Failed: ${e.message}`);
+            }
 
             // 2. Transcribe
             console.log('[Pipeline] Transcribing...');
-            const transcript = await aiService.transcribeAudio(tempFilePath);
-            console.log(`[Pipeline] Transcript length: ${transcript.length}`);
+            let transcript = "";
+            try {
+                transcript = await aiService.transcribeAudio(tempFilePath);
+                console.log(`[Pipeline] Transcript length: ${transcript.length}`);
+            } catch (e: any) {
+                throw new Error(`Stage 2 (Transcription) Failed: ${e.message}`);
+            }
 
             // 3. Generate Blog
             console.log('[Pipeline] Generating Blog Post via Gemini...');
-            const generatedBlog = await aiService.generateBlog(transcript, prompt);
+            let generatedBlog;
+            try {
+                generatedBlog = await aiService.generateBlog(transcript, prompt);
+            } catch (e: any) {
+                throw new Error(`Stage 3 (Blog Gen) Failed: ${e.message}`);
+            }
 
             // 4. Clean up temp file
             await fs.unlink(tempFilePath).catch(e => console.error('Failed to delete temp file:', e));

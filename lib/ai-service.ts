@@ -8,40 +8,53 @@ export const aiService = {
             throw new Error('DEEPGRAM_API_KEY is missing');
         }
 
-        const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+        let deepgram;
+        try {
+            deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+        } catch (e: any) {
+            throw new Error(`Deepgram Client Init Failed: ${e.message}`);
+        }
 
         // Check file stats first
         const stats = await fs.promises.stat(audioPath);
         if (stats.size === 0) {
-            throw new Error('Audio file is empty. Download might have failed.');
+            throw new Error('Audio file is empty. Upload failed or file corrupted.');
         }
         console.log(`[Deepgram] Transcribing file: ${audioPath} (${stats.size} bytes)`);
 
-        // Use stream directly
-        const audioSource = fs.createReadStream(audioPath);
+        try {
+            // Use stream directly
+            const audioSource = fs.createReadStream(audioPath);
 
-        const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
-            audioSource,
-            {
-                model: 'nova-2',
-                language: 'tr', // Turkish
-                smart_format: true,
-                punctuate: true,
+            const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+                audioSource,
+                {
+                    model: 'nova-2',
+                    language: 'tr', // Turkish
+                    smart_format: true,
+                    punctuate: true,
+                }
+            );
+
+            if (error) {
+                throw new Error(`Deepgram API Error: ${error.message}`);
             }
-        );
 
-        if (error) {
-            throw new Error(`Deepgram Error: ${error.message}`);
+            // Safely access the transcript
+            const transcript = result?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+
+            if (!transcript) {
+                // If it's empty, maybe it's music or silence?
+                console.warn("Deepgram returned empty transcript.");
+                return " (No speech detected in audio) ";
+            }
+
+            return transcript;
+
+        } catch (e: any) {
+            console.error("Deepgram Exception:", e);
+            throw new Error(`Deepgram processing error: ${e.message}`);
         }
-
-        // Safely access the transcript
-        const transcript = result?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
-
-        if (!transcript) {
-            throw new Error("Transcriptions failed: No transcript returned");
-        }
-
-        return transcript;
     },
 
     async generateBlog(transcript: string, userPrompt?: string): Promise<{

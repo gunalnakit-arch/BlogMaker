@@ -20,27 +20,42 @@ export default function Home() {
     if (!file) return;
 
     setIsLoading(true);
-    toast.info('Starting pipeline...', { description: 'Uploading and transcribing audio.' });
+    toast.info('Starting pipeline...', { description: 'Encoding and uploading audio...' });
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('prompt', prompt);
+      // Convert file to base64 to bypass Vercel WAF blocking binary FormData
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Remove the data URL prefix (e.g., "data:audio/mpeg;base64,")
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
       const res = await fetch('/api/pipeline', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileBase64: base64,
+          fileName: file.name,
+          prompt: prompt,
+        }),
       });
 
       // Get raw text first to debug if JSON parsing fails
       const rawText = await res.text();
-      console.log('[Client] Raw Response:', rawText);
+      console.log('[Client] Raw Response:', rawText.substring(0, 500));
 
       let data;
       try {
         data = JSON.parse(rawText);
       } catch (parseError) {
-        // If not JSON, throw with raw text for debugging
         throw new Error(`Server returned non-JSON: ${rawText.substring(0, 200)}`);
       }
 
@@ -49,7 +64,6 @@ export default function Home() {
       }
 
       // STATELESS: Save result to LocalStorage
-      // Use the returned ID as the key
       localStorage.setItem(`post-${data.id}`, JSON.stringify(data));
 
       toast.success('Blog Generated!', { description: 'Redirecting to editor...' });

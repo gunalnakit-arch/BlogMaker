@@ -15,22 +15,26 @@ export async function POST(req: NextRequest) {
     try {
         console.log('[Pipeline] Received request');
 
-        let formData: FormData;
+        // Parse JSON body (base64 encoded file)
+        let body;
         try {
-            formData = await req.formData();
+            body = await req.json();
         } catch (e: any) {
-            console.error('[Pipeline] FormData Parsing Error:', e);
-            throw new Error(`Failed to parse upload: ${e.message}`);
+            console.error('[Pipeline] JSON Parsing Error:', e);
+            throw new Error(`Failed to parse request: ${e.message}`);
         }
 
-        const file = formData.get('file') as File;
-        const prompt = formData.get('prompt') as string;
+        const { fileBase64, fileName, prompt } = body;
 
-        if (!file) {
-            return NextResponse.json({ error: 'File is required' }, { status: 400 });
+        if (!fileBase64) {
+            return NextResponse.json({ error: 'fileBase64 is required' }, { status: 400 });
         }
 
-        console.log(`[Pipeline] Processing file: ${file.name}, Size: ${file.size}`);
+        console.log(`[Pipeline] Processing file: ${fileName}, Base64 length: ${fileBase64.length}`);
+
+        // Decode base64 to buffer
+        const buffer = Buffer.from(fileBase64, 'base64');
+        console.log(`[Pipeline] Decoded buffer size: ${buffer.length} bytes`);
 
         // Use standard system temp directory
         const tempDir = os.tmpdir();
@@ -41,7 +45,6 @@ export async function POST(req: NextRequest) {
             // 1. Save Uploaded Audio to Temp
             console.log('[Pipeline] Saving to temp...', tempFilePath);
             try {
-                const buffer = Buffer.from(await file.arrayBuffer());
                 await fs.writeFile(tempFilePath, buffer);
             } catch (e: any) {
                 throw new Error(`Stage 1 (File Save) Failed: ${e.message}`);

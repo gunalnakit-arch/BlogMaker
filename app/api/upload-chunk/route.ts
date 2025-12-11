@@ -3,9 +3,7 @@ export const maxDuration = 60;
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
+import { put } from '@vercel/blob';
 
 export async function POST(req: NextRequest) {
     try {
@@ -21,18 +19,20 @@ export async function POST(req: NextRequest) {
         // Decode base64 chunk
         const buffer = Buffer.from(data, 'base64');
 
-        // Save to temp directory
-        const tempDir = os.tmpdir();
-        const chunkPath = path.join(tempDir, `chunk-${uploadId}-${chunkIndex}.bin`);
+        // Store chunk in Vercel Blob
+        const blobPath = `chunks/${uploadId}/${chunkIndex}.bin`;
+        const blob = await put(blobPath, buffer, {
+            access: 'public', // Needed to fetch later
+            addRandomSuffix: false, // Keep predictable path
+        });
 
-        await fs.writeFile(chunkPath, buffer);
-
-        console.log(`[Chunk] Saved chunk ${chunkIndex} (${buffer.length} bytes) to ${chunkPath}`);
+        console.log(`[Chunk] Saved chunk ${chunkIndex} (${buffer.length} bytes) to Blob: ${blob.url}`);
 
         return NextResponse.json({
             success: true,
             chunkIndex,
-            bytesReceived: buffer.length
+            bytesReceived: buffer.length,
+            blobUrl: blob.url
         });
 
     } catch (error: any) {

@@ -4,6 +4,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { aiService } from '@/lib/ai-service';
+import { list, del } from '@vercel/blob';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
@@ -29,35 +30,53 @@ export async function POST(req: NextRequest) {
         const mergedFilePath = path.join(tempDir, `merged-${requestId}.mp3`);
 
         try {
-            // 1. Read and merge all chunks
-            console.log('[Finalize] Stage 1: Merging chunks...');
+            // 1. Fetch all chunk URLs from Vercel Blob
+            console.log('[Finalize] Stage 1: Fetching chunks from Blob...');
+            const { blobs } = await list({ prefix: `chunks/${uploadId}/` });
+
+            if (blobs.length === 0) {
+                throw new Error('No chunks found in Blob storage');
+            }
+
+            console.log(`[Finalize] Found ${blobs.length} blobs`);
+
+            // Sort blobs by chunk index (extracted from pathname)
+            blobs.sort((a, b) => {
+                const indexA = parseInt(a.pathname.split('/').pop()?.replace('.bin', '') || '0');
+                const indexB = parseInt(b.pathname.split('/').pop()?.replace('.bin', '') || '0');
+                return indexA - indexB;
+            });
+
+            // 2. Download and merge chunks
+            console.log('[Finalize] Stage 2: Downloading and merging...');
             const chunks: Buffer[] = [];
 
-            for (let i = 0; i < totalChunks; i++) {
-                const chunkPath = path.join(tempDir, `chunk-${uploadId}-${i}.bin`);
+            for (const blob of blobs) {
                 try {
-                    const chunkData = await fs.readFile(chunkPath);
-                    chunks.push(chunkData);
-                    console.log(`[Finalize] Read chunk ${i} (${chunkData.length} bytes)`);
+                    const response = await fetch(blob.url);
+                    const arrayBuffer = await response.arrayBuffer();
+                    const chunkBuffer = Buffer.from(arrayBuffer);
+                    chunks.push(chunkBuffer);
+                    console.log(`[Finalize] Downloaded ${blob.pathname} (${chunkBuffer.length} bytes)`);
                 } catch (e: any) {
-                    throw new Error(`Failed to read chunk ${i}: ${e.message}`);
+                    throw new Error(`Failed to download chunk ${blob.pathname}: ${e.message}`);
                 }
             }
 
             const mergedBuffer = Buffer.concat(chunks);
             console.log(`[Finalize] Total merged size: ${mergedBuffer.length} bytes`);
 
-            // Save merged file
+            // Save merged file to temp for processing
             await fs.writeFile(mergedFilePath, mergedBuffer);
 
-            // 2. Clean up chunk files
-            for (let i = 0; i < totalChunks; i++) {
-                const chunkPath = path.join(tempDir, `chunk-${uploadId}-${i}.bin`);
-                await fs.unlink(chunkPath).catch(() => { });
+            // 3. Clean up Blob chunks
+            console.log('[Finalize] Cleaning up Blob chunks...');
+            for (const blob of blobs) {
+                await del(blob.url).catch(e => console.error(`Failed to delete ${blob.url}:`, e));
             }
 
-            // 3. Transcribe
-            console.log('[Finalize] Stage 2: Transcribing...');
+            // 4. Transcribe
+            console.log('[Finalize] Stage 3: Transcribing...');
             let transcript = "";
             try {
                 transcript = await aiService.transcribeAudio(mergedFilePath);
@@ -66,8 +85,8 @@ export async function POST(req: NextRequest) {
                 throw new Error(`Transcription Failed: ${e.message}`);
             }
 
-            // 4. Generate Blog
-            console.log('[Finalize] Stage 3: Generating Blog...');
+            // 5. Generate Blog
+            console.log('[Finalize] Stage 4: Generating Blog...');
             let generatedBlog;
             try {
                 generatedBlog = await aiService.generateBlog(transcript, prompt);
@@ -75,10 +94,10 @@ export async function POST(req: NextRequest) {
                 throw new Error(`Blog Generation Failed: ${e.message}`);
             }
 
-            // 5. Clean up merged file
+            // 6. Clean up temp merged file
             await fs.unlink(mergedFilePath).catch(() => { });
 
-            // 6. Return result
+            // 7. Return result
             const responsePayload = {
                 id: requestId,
                 title: generatedBlog.h1,
@@ -96,7 +115,6 @@ export async function POST(req: NextRequest) {
 
         } catch (error: any) {
             console.error('[Finalize] Error:', error);
-            // Attempt cleanup
             await fs.unlink(mergedFilePath).catch(() => { });
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
@@ -105,3 +123,4 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
+

@@ -143,8 +143,69 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
                         disabled={saving}
                     >
                         {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                        Save Changes
+                        Save
                     </Button>
+                    {(post.content || post.blogContent) && (
+                        <>
+                            <Button
+                                variant="outline"
+                                className="border-white/20 hover:bg-white/10"
+                                onClick={async () => {
+                                    try {
+                                        const res = await fetch('/api/export/docx', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                                title: post.metaTitle || post.title,
+                                                content: post.content || post.blogContent,
+                                                metaDescription: post.metaDescription,
+                                            }),
+                                        });
+                                        const blob = await res.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `${(post.metaTitle || 'blog-post').replace(/[^a-z0-9]/gi, '-')}.docx`;
+                                        a.click();
+                                        toast.success('DOCX downloaded!');
+                                    } catch (e: any) {
+                                        toast.error('Export failed', { description: e.message });
+                                    }
+                                }}
+                            >
+                                <Download className="w-4 h-4 mr-2" /> DOCX
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="border-white/20 hover:bg-white/10"
+                                onClick={async () => {
+                                    try {
+                                        const res = await fetch('/api/export/pdf', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                                title: post.metaTitle || post.title,
+                                                content: post.content || post.blogContent,
+                                                metaDescription: post.metaDescription,
+                                            }),
+                                        });
+                                        const html = await res.text();
+                                        const printWindow = window.open('', '_blank');
+                                        if (printWindow) {
+                                            printWindow.document.write(html);
+                                            printWindow.document.close();
+                                            printWindow.print();
+                                        }
+                                        toast.success('Print dialog opened!');
+                                    } catch (e: any) {
+                                        toast.error('Export failed', { description: e.message });
+                                    }
+                                }}
+                            >
+                                <FileText className="w-4 h-4 mr-2" /> PDF
+                            </Button>
+                        </>
+                    )}
                 </div>
             </div>
 

@@ -19,6 +19,18 @@ export default function Home() {
     e.preventDefault();
     if (!file) return;
 
+    // Vercel free tier has 4.5MB payload limit, base64 adds ~33% overhead
+    // So we limit to 3MB to be safe (3MB file -> ~4MB base64)
+    const MAX_FILE_SIZE_MB = 3;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      toast.error('File Too Large', {
+        description: `Maximum file size is ${MAX_FILE_SIZE_MB}MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB. Please compress the audio or use a shorter clip.`
+      });
+      return;
+    }
+
     setIsLoading(true);
     toast.info('Starting pipeline...', { description: 'Encoding and uploading audio...' });
 

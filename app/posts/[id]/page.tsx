@@ -101,6 +101,14 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
 
             setPost(updatedPost);
             localStorage.setItem(`post-${id}`, JSON.stringify(updatedPost));
+
+            // Also update in Blob for persistence
+            await fetch('/api/posts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedPost),
+            });
+
             setActiveTab('blog');
 
             toast.success('Blog generated!');

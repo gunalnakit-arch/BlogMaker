@@ -32,10 +32,20 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await res.json();
+      // Get raw text first to debug if JSON parsing fails
+      const rawText = await res.text();
+      console.log('[Client] Raw Response:', rawText);
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseError) {
+        // If not JSON, throw with raw text for debugging
+        throw new Error(`Server returned non-JSON: ${rawText.substring(0, 200)}`);
+      }
 
       if (!res.ok) {
-        throw new Error(data.error || 'Pipeline failed');
+        throw new Error(data.error || `HTTP ${res.status}: ${rawText.substring(0, 100)}`);
       }
 
       // STATELESS: Save result to LocalStorage
@@ -46,6 +56,7 @@ export default function Home() {
       router.push(`/posts/${data.id}`);
 
     } catch (error: any) {
+      console.error('[Client] Full Error:', error);
       toast.error('Error', { description: error.message });
       setIsLoading(false);
     }

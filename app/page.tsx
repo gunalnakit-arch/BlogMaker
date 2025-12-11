@@ -14,55 +14,81 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+
+  const CHUNK_SIZE = 2.5 * 1024 * 1024; // 2.5MB chunks
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
 
-    // Vercel free tier has 4.5MB payload limit, base64 adds ~33% overhead
-    // So we limit to 3MB to be safe (3MB file -> ~4MB base64)
-    const MAX_FILE_SIZE_MB = 3;
-    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      toast.error('File Too Large', {
-        description: `Maximum file size is ${MAX_FILE_SIZE_MB}MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB. Please compress the audio or use a shorter clip.`
-      });
-      return;
-    }
-
     setIsLoading(true);
-    toast.info('Starting pipeline...', { description: 'Encoding and uploading audio...' });
+    setUploadProgress('Preparing file...');
 
     try {
-      // Convert file to base64 to bypass Vercel WAF blocking binary FormData
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          // Remove the data URL prefix (e.g., "data:audio/mpeg;base64,")
-          const base64Data = result.split(',')[1];
-          resolve(base64Data);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // Generate unique upload ID
+      const uploadId = Math.random().toString(36).substring(2, 15);
 
-      const res = await fetch('/api/pipeline', {
+      // Calculate total chunks
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      console.log(`[Client] Splitting ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB) into ${totalChunks} chunks`);
+
+      // Upload each chunk
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        setUploadProgress(`Uploading chunk ${chunkIndex + 1}/${totalChunks}...`);
+        toast.info(`Uploading...`, { description: `Chunk ${chunkIndex + 1}/${totalChunks}` });
+
+        // Convert chunk to base64
+        const base64Chunk = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(chunk);
+        });
+
+        // Upload chunk
+        const chunkRes = await fetch('/api/upload-chunk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploadId,
+            chunkIndex,
+            totalChunks,
+            data: base64Chunk,
+          }),
+        });
+
+        if (!chunkRes.ok) {
+          const errText = await chunkRes.text();
+          throw new Error(`Chunk ${chunkIndex} failed: ${errText}`);
+        }
+      }
+
+      // All chunks uploaded, now finalize
+      setUploadProgress('Processing audio...');
+      toast.info('Chunks uploaded!', { description: 'Processing with AI...' });
+
+      const finalRes = await fetch('/api/finalize-upload', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fileBase64: base64,
+          uploadId,
+          totalChunks,
           fileName: file.name,
-          prompt: prompt,
+          prompt,
         }),
       });
 
-      // Get raw text first to debug if JSON parsing fails
-      const rawText = await res.text();
-      console.log('[Client] Raw Response:', rawText.substring(0, 500));
+      const rawText = await finalRes.text();
+      console.log('[Client] Finalize Response:', rawText.substring(0, 500));
 
       let data;
       try {
@@ -71,20 +97,21 @@ export default function Home() {
         throw new Error(`Server returned non-JSON: ${rawText.substring(0, 200)}`);
       }
 
-      if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}: ${rawText.substring(0, 100)}`);
+      if (!finalRes.ok) {
+        throw new Error(data.error || `HTTP ${finalRes.status}`);
       }
 
-      // STATELESS: Save result to LocalStorage
+      // Save to LocalStorage
       localStorage.setItem(`post-${data.id}`, JSON.stringify(data));
 
       toast.success('Blog Generated!', { description: 'Redirecting to editor...' });
       router.push(`/posts/${data.id}`);
 
     } catch (error: any) {
-      console.error('[Client] Full Error:', error);
+      console.error('[Client] Error:', error);
       toast.error('Error', { description: error.message });
       setIsLoading(false);
+      setUploadProgress('');
     }
   };
 
@@ -143,7 +170,7 @@ export default function Home() {
                 className="h-12 w-full bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold shadow-lg shadow-purple-500/25 transition-all"
               >
                 {isLoading ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {uploadProgress || 'Processing...'}</>
                 ) : (
                   <><Sparkles className="w-4 h-4 mr-2" /> Generate</>
                 )}

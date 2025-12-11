@@ -72,9 +72,9 @@ export default function Home() {
         }
       }
 
-      // All chunks uploaded, now finalize
-      setUploadProgress('Processing audio...');
-      toast.info('Chunks uploaded!', { description: 'Processing with AI...' });
+      // All chunks uploaded, now finalize (transcription only)
+      setUploadProgress('Transcribing audio...');
+      toast.info('Chunks uploaded!', { description: 'Transcribing with Deepgram...' });
 
       const finalRes = await fetch('/api/finalize-upload', {
         method: 'POST',
@@ -83,7 +83,6 @@ export default function Home() {
           uploadId,
           totalChunks,
           fileName: file.name,
-          prompt,
         }),
       });
 
@@ -101,10 +100,13 @@ export default function Home() {
         throw new Error(data.error || `HTTP ${finalRes.status}`);
       }
 
-      // Save to LocalStorage
-      localStorage.setItem(`post-${data.id}`, JSON.stringify(data));
+      // Save transcript to LocalStorage (no blog content yet)
+      localStorage.setItem(`post-${data.id}`, JSON.stringify({
+        ...data,
+        prompt: prompt, // Save prompt for later blog generation
+      }));
 
-      toast.success('Blog Generated!', { description: 'Redirecting to editor...' });
+      toast.success('Transcription Complete!', { description: 'Redirecting to review...' });
       router.push(`/posts/${data.id}`);
 
     } catch (error: any) {

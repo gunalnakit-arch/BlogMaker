@@ -1,5 +1,5 @@
 // Allow long execution time
-export const maxDuration = 300; // 5 minutes for transcription + blog generation
+export const maxDuration = 300; // 5 minutes for transcription
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
         console.log('[Finalize] Received request');
 
         const body = await req.json();
-        const { uploadId, totalChunks, fileName, prompt } = body;
+        const { uploadId, totalChunks, fileName } = body;
 
         if (!uploadId || !totalChunks) {
             return NextResponse.json({ error: 'Missing uploadId or totalChunks' }, { status: 400 });
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
             console.log(`[Finalize] Found ${blobs.length} blobs`);
 
-            // Sort blobs by chunk index (extracted from pathname)
+            // Sort blobs by chunk index
             blobs.sort((a, b) => {
                 const indexA = parseInt(a.pathname.split('/').pop()?.replace('.bin', '') || '0');
                 const indexB = parseInt(b.pathname.split('/').pop()?.replace('.bin', '') || '0');
@@ -52,15 +52,11 @@ export async function POST(req: NextRequest) {
             const chunks: Buffer[] = [];
 
             for (const blob of blobs) {
-                try {
-                    const response = await fetch(blob.url);
-                    const arrayBuffer = await response.arrayBuffer();
-                    const chunkBuffer = Buffer.from(arrayBuffer);
-                    chunks.push(chunkBuffer);
-                    console.log(`[Finalize] Downloaded ${blob.pathname} (${chunkBuffer.length} bytes)`);
-                } catch (e: any) {
-                    throw new Error(`Failed to download chunk ${blob.pathname}: ${e.message}`);
-                }
+                const response = await fetch(blob.url);
+                const arrayBuffer = await response.arrayBuffer();
+                const chunkBuffer = Buffer.from(arrayBuffer);
+                chunks.push(chunkBuffer);
+                console.log(`[Finalize] Downloaded ${blob.pathname} (${chunkBuffer.length} bytes)`);
             }
 
             const mergedBuffer = Buffer.concat(chunks);
@@ -72,45 +68,27 @@ export async function POST(req: NextRequest) {
             // 3. Clean up Blob chunks
             console.log('[Finalize] Cleaning up Blob chunks...');
             for (const blob of blobs) {
-                await del(blob.url).catch(e => console.error(`Failed to delete ${blob.url}:`, e));
+                await del(blob.url).catch(() => { });
             }
 
-            // 4. Transcribe
+            // 4. Transcribe ONLY (no blog generation)
             console.log('[Finalize] Stage 3: Transcribing...');
-            let transcript = "";
-            try {
-                transcript = await aiService.transcribeAudio(mergedFilePath);
-                console.log(`[Finalize] Transcript length: ${transcript.length}`);
-            } catch (e: any) {
-                throw new Error(`Transcription Failed: ${e.message}`);
-            }
+            const transcript = await aiService.transcribeAudio(mergedFilePath);
+            console.log(`[Finalize] Transcript length: ${transcript.length}`);
 
-            // 5. Generate Blog
-            console.log('[Finalize] Stage 4: Generating Blog...');
-            let generatedBlog;
-            try {
-                generatedBlog = await aiService.generateBlog(transcript, prompt);
-            } catch (e: any) {
-                throw new Error(`Blog Generation Failed: ${e.message}`);
-            }
-
-            // 6. Clean up temp merged file
+            // 5. Clean up temp file
             await fs.unlink(mergedFilePath).catch(() => { });
 
-            // 7. Return result
+            // 6. Return transcript for user to review before blog generation
             const responsePayload = {
                 id: requestId,
-                title: generatedBlog.h1,
-                content: generatedBlog.contentHtml,
-                metaTitle: generatedBlog.metaTitle,
-                metaDescription: generatedBlog.metaDescription,
-                slug: generatedBlog.slug,
-                keywords: generatedBlog.keywords,
+                title: fileName?.replace('.mp3', '') || 'Transcription',
+                transcript: transcript,
                 createdAt: new Date().toISOString(),
-                transcript: transcript
+                // No blog content yet - user will trigger that separately
             };
 
-            console.log('[Finalize] Success!');
+            console.log('[Finalize] Success - returning transcript!');
             return NextResponse.json(responsePayload);
 
         } catch (error: any) {
@@ -123,4 +101,3 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
-

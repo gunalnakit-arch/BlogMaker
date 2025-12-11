@@ -7,19 +7,22 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Save, Download, FileText, Bot, ArrowLeft } from 'lucide-react';
+import { Loader2, Save, Download, FileText, Bot, ArrowLeft, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 interface PostDetail {
     id: string;
-    url: string;
+    url?: string;
+    title?: string;
     transcript: string;
-    blogContent: string;
-    metaTitle: string;
-    metaDescription: string;
-    slug: string;
-    keywords: string[];
+    content?: string; // Blog content (may not exist yet)
+    blogContent?: string; // Legacy field
+    metaTitle?: string;
+    metaDescription?: string;
+    slug?: string;
+    keywords?: string[];
+    prompt?: string; // Saved prompt for blog generation
 }
 
 export default function PostDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -27,14 +30,20 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
     const [post, setPost] = useState<PostDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'blog' | 'meta' | 'transcript'>('blog');
+    const [generating, setGenerating] = useState(false);
+    const [activeTab, setActiveTab] = useState<'blog' | 'meta' | 'transcript'>('transcript'); // Default to transcript
 
     useEffect(() => {
         // STATELESS: Read from LocalStorage
         const savedData = localStorage.getItem(`post-${id}`);
         if (savedData) {
             try {
-                setPost(JSON.parse(savedData));
+                const parsed = JSON.parse(savedData);
+                setPost(parsed);
+                // If blog content exists, default to blog tab
+                if (parsed.content || parsed.blogContent) {
+                    setActiveTab('blog');
+                }
             } catch (e) {
                 toast.error('Failed to parse post data');
             }
@@ -48,13 +57,57 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
         if (!post) return;
         setSaving(true);
         try {
-            // STATELESS: Save to LocalStorage
             localStorage.setItem(`post-${id}`, JSON.stringify(post));
             toast.success('Saved locally');
         } catch (error) {
             toast.error('Error saving post');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleGenerateBlog = async () => {
+        if (!post?.transcript) return;
+        setGenerating(true);
+        toast.info('Generating blog...', { description: 'This may take a minute.' });
+
+        try {
+            const res = await fetch('/api/generate-blog', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    transcript: post.transcript,
+                    prompt: post.prompt,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || 'Blog generation failed');
+            }
+
+            // Update post with blog content
+            const updatedPost = {
+                ...post,
+                content: data.content,
+                blogContent: data.content, // Legacy compatibility
+                metaTitle: data.metaTitle,
+                metaDescription: data.metaDescription,
+                slug: data.slug,
+                keywords: data.keywords,
+                title: data.title,
+            };
+
+            setPost(updatedPost);
+            localStorage.setItem(`post-${id}`, JSON.stringify(updatedPost));
+            setActiveTab('blog');
+
+            toast.success('Blog generated!');
+        } catch (error: any) {
+            toast.error('Error', { description: error.message });
+        } finally {
+            setGenerating(false);
         }
     };
 
@@ -137,15 +190,40 @@ export default function PostDetail({ params }: { params: Promise<{ id: string }>
                     {/* Note: In a real app, use a Rich Text Editor like TipTap. Here using Textarea for simplicity as per MVP */}
                     {activeTab === 'blog' && (
                         <Card className="h-full bg-[#0D0D0F]/50 border-white/10 flex flex-col p-0 overflow-hidden">
-                            <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center text-xs text-muted-foreground">
-                                <span>HTML Editor</span>
-                                <span className="text-amber-500">Edit HTML directly</span>
-                            </div>
-                            <textarea
-                                className="flex-1 w-full bg-transparent p-6 font-mono text-sm leading-relaxed resize-none focus:outline-none text-gray-300"
-                                value={post.blogContent}
-                                onChange={(e) => setPost({ ...post, blogContent: e.target.value })}
-                            />
+                            {(post.content || post.blogContent) ? (
+                                <>
+                                    <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center text-xs text-muted-foreground">
+                                        <span>HTML Editor</span>
+                                        <span className="text-amber-500">Edit HTML directly</span>
+                                    </div>
+                                    <textarea
+                                        className="flex-1 w-full bg-transparent p-6 font-mono text-sm leading-relaxed resize-none focus:outline-none text-gray-300"
+                                        value={post.content || post.blogContent || ''}
+                                        onChange={(e) => setPost({ ...post, content: e.target.value, blogContent: e.target.value })}
+                                    />
+                                </>
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-6">
+                                    <div className="text-center space-y-2">
+                                        <Bot className="w-16 h-16 mx-auto text-purple-400/50" />
+                                        <h3 className="text-xl font-semibold text-gray-200">No Blog Content Yet</h3>
+                                        <p className="text-muted-foreground max-w-md">
+                                            Review your transcript first, then click the button below to generate a blog post using AI.
+                                        </p>
+                                    </div>
+                                    <Button
+                                        onClick={handleGenerateBlog}
+                                        disabled={generating}
+                                        className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold shadow-lg shadow-purple-500/25 px-8 py-6 text-lg"
+                                    >
+                                        {generating ? (
+                                            <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Generating Blog...</>
+                                        ) : (
+                                            <><Sparkles className="w-5 h-5 mr-2" /> Generate Blog with AI</>
+                                        )}
+                                    </Button>
+                                </div>
+                            )}
                         </Card>
                     )}
 
